@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<title>2D-Atomgenerator V4b – 7×12</title>
+<title>2D-Atomgenerator V4c – 7×12</title>
 <style>
 body{margin:0;background:#f7f7f7}
 .atomgen{font-family:Arial,sans-serif;max-width:1180px;margin:20px auto;padding:18px;border:1px solid #bbb;border-radius:14px;background:#fff}
@@ -18,7 +18,7 @@ button{margin:10px 8px 10px 0;padding:8px 14px;cursor:pointer}
 </head>
 <body>
 <div class="atomgen">
-<h2>2D-Atomgenerator – V4b 7×12-Arbeitsfeld</h2>
+<h2>2D-Atomgenerator – V4c 7×12-Arbeitsfeld</h2>
 
 <div class="row"><label>Element:</label><select id="elementSelect" onchange="syncElement()"></select></div>
 <div class="row"><label>Protonen P:</label><input id="protonCount" type="number" min="1" max="18" value="8" onchange="syncFromProtons()"></div>
@@ -31,10 +31,10 @@ button{margin:10px 8px 10px 0;padding:8px 14px;cursor:pointer}
 <canvas id="atomCanvas" width="1180" height="760"></canvas>
 <div id="atomInfo"></div>
 <p class="note">
-V4-Testversion: Alle Atome werden in einem festen 7×12-Arbeitsfeld angezeigt.
+V4c-Testversion: Alle Atome werden in einem festen 7×12-Arbeitsfeld angezeigt.
 Der Aufbau erfolgt weiterhin innerhalb des Edelgasrechtecks der jeweiligen Periode.
 Bei Edelgasen wird das vollständig besetzte Atomrechteck rot gestrichelt umrandet.
-Protonenbuchstaben drehen gegen den Uhrzeigersinn, Neutronenbuchstaben im Uhrzeigersinn. Die Buchstaben sind größer und drehen schneller; die Startwinkel sind leicht versetzt.
+Neu: Buchstaben etwas kleiner, gleich ausgerichtet und etwas schneller; zusätzliche Neutronen werden nur direkt an Protonen gesetzt, fehlende Neutronen nur von außen entfernt.
 </p>
 </div>
 
@@ -107,10 +107,11 @@ const BASE_TEMPLATES={
 "1": {rect:"HE", title:"H-1", P:[[0,1]], N:[], V:[[1,1]]},
 "2": {rect:"HE", title:"He-4", P:[[1,0],[0,1]], N:[[0,0],[1,1]], V:[]},
 
-/* Li-7 neu: 3×3-Anordnung innerhalb des Neonrechtecks */
-"3": {rect:"NE", title:"Li-7", P:[[1,1],[2,2],[1,3]], N:[[2,1],[1,2],[2,3],[0,2]], V:[[0,1],[3,1],[0,3],[3,3]]},
+/* Li-7 und Be-9: 3×3-Anordnung innerhalb des Neonrechtecks.
+   Lokale Koordinaten sind so gesetzt, dass sie im globalen 7×12-Schachbrett korrekt liegen. */
+"3": {rect:"NE", title:"Li-7", P:[[1,0],[0,1],[1,2]], N:[[0,0],[2,0],[1,1],[0,2]], V:[[2,1],[2,2]]},
 
-"4": {rect:"NE", title:"Be-9", P:[[2,0],[1,1],[3,1],[2,2]], N:[[1,0],[0,1],[2,1],[1,2],[3,2]], V:[[0,0],[3,0],[0,2]]},
+"4": {rect:"NE", title:"Be-9", P:[[1,0],[0,1],[2,1],[1,2]], N:[[0,0],[2,0],[1,1],[0,2],[2,2]], V:[[3,0],[3,1],[3,2]]},
 "5": {rect:"NE", title:"B-11", P:[[2,1],[1,2],[3,2],[0,3],[2,3]], N:[[2,0],[1,1],[3,1],[0,2],[2,2],[1,3]], V:[[1,0],[3,0],[0,1],[3,3]]},
 "6": {rect:"NE", title:"C-12", P:[[2,1],[1,2],[3,2],[0,3],[2,3],[1,4]], N:[[2,0],[1,1],[3,1],[0,2],[2,2],[1,3]], V:[[1,0],[3,0],[0,1],[3,3],[0,4],[2,4]]},
 "7": {rect:"NE", title:"N-14", P:[[0,1],[2,1],[1,2],[3,2],[0,3],[2,3],[1,4]], N:[[2,0],[1,1],[3,1],[0,2],[2,2],[1,3],[3,3]], V:[[1,0],[3,0],[0,4],[2,4]]},
@@ -181,51 +182,73 @@ function areParticlesConnected(pList,nList){
   return seen.size===set.size;
 }
 
-/* einfache Kombinationserzeugung für maximal 18 Neutronen */
-function combinations(arr,k,limit=80000){
-  const out=[];
-  const comb=[];
-  function rec(start){
-    if(out.length>=limit)return;
-    if(comb.length===k){out.push(comb.slice());return;}
-    for(let i=start;i<=arr.length-(k-comb.length);i++){
-      comb.push(arr[i]);
-      rec(i+1);
-      comb.pop();
-      if(out.length>=limit)return;
-    }
-  }
-  rec(0);
-  return out;
+/*
+  Isotopenlogik V4c:
+  - Bei Unterzahl werden Neutronen nur von außen entfernt.
+    Ein Neutron darf nur dann entfernt werden, wenn der Gesamtverband verbunden bleibt.
+    Damit werden keine inneren Neutronen herausgenommen.
+  - Bei Überzahl dürfen zusätzliche Neutronen nur auf freien N-Feldern liegen,
+    die direkt an mindestens ein Proton angrenzen. Niemals frei.
+*/
+function protonNeighborCount(pos,pList){
+  const x=pos[0], y=pos[1];
+  let c=0;
+  const ps=new Set(pList.map(p=>keyXY(p[0],p[1])));
+  if(ps.has(keyXY(x+1,y)))c++;
+  if(ps.has(keyXY(x-1,y)))c++;
+  if(ps.has(keyXY(x,y+1)))c++;
+  if(ps.has(keyXY(x,y-1)))c++;
+  return c;
 }
 
-function subsetScore(subset,pList){
-  const occ=occupiedSetFromLists(pList,subset);
-  let score=0;
-  for(const n of subset){
-    score += neighborCount(n,occ)*10;
-    score -= centerDistanceGlobal(n)*0.1;
-  }
-  return score;
+function outerScore(pos,rect){
+  const left=pos[0]-rect.x, right=(rect.x+rect.w-1)-pos[0];
+  const top=pos[1]-rect.y, bottom=(rect.y+rect.h-1)-pos[1];
+  const distToEdge=Math.min(left,right,top,bottom);
+  const cx=rect.x+(rect.w-1)/2, cy=rect.y+(rect.h-1)/2;
+  const distCenter=Math.abs(pos[0]-cx)+Math.abs(pos[1]-cy);
+  return distCenter*10 - distToEdge*50; // außen zuerst
 }
 
-function chooseConnectedNeutrons(pList,baseN,wantedN){
-  if(wantedN>baseN.length){
-    // Zusätzliche Neutronen werden in freien N-Feldern der aktiven Periode ergänzt.
-    return baseN.slice();
-  }
+function chooseNeutronsByRules(pList,baseN,wantedN,rect){
   if(wantedN===baseN.length)return baseN.slice();
 
-  let best=null, bestScore=-999999;
-  const combs=combinations(baseN,wantedN);
-  for(const c of combs){
-    if(areParticlesConnected(pList,c)){
-      const sc=subsetScore(c,pList);
-      if(sc>bestScore){best=c; bestScore=sc;}
+  if(wantedN<baseN.length){
+    let current=baseN.slice();
+    while(current.length>wantedN){
+      let bestIndex=-1, bestScore=-999999;
+      for(let i=0;i<current.length;i++){
+        const candidate=current[i];
+        const rest=current.slice(0,i).concat(current.slice(i+1));
+        if(!areParticlesConnected(pList,rest))continue;
+        const sc=outerScore(candidate,rect) - neighborCount(candidate,occupiedSetFromLists(pList,current))*2;
+        if(sc>bestScore){bestScore=sc; bestIndex=i;}
+      }
+      if(bestIndex<0)throw new Error("kein Isotop möglich! Neutronen können nicht weiter von außen entfernt werden, ohne den Zusammenhang aufzulösen.");
+      current.splice(bestIndex,1);
     }
+    return current;
   }
-  if(!best)throw new Error("kein Isotop möglich!");
-  return best;
+
+  // wantedN > baseN.length
+  let current=baseN.slice();
+  const used=new Set(baseN.concat(pList).map(p=>keyXY(p[0],p[1])));
+  let candidates=allNFieldsInRect(rect)
+    .filter(p=>!used.has(keyXY(p[0],p[1])))
+    .filter(p=>protonNeighborCount(p,pList)>0); // direkt an Proton
+
+  candidates.sort((a,b)=>{
+    const pa=protonNeighborCount(a,pList), pb=protonNeighborCount(b,pList);
+    if(pb!==pa)return pb-pa;
+    return outerScore(b,rect)-outerScore(a,rect);
+  });
+
+  for(const c of candidates){
+    if(current.length>=wantedN)break;
+    current.push(c);
+  }
+  if(current.length!==wantedN)throw new Error("kein Isotop möglich! Zusätzliche Neutronen wären nicht direkt an ein Proton angedockt.");
+  return current;
 }
 
 function allNFieldsInRect(rect){
@@ -246,14 +269,7 @@ function buildAtom(z,n){
   let pList=toGlobalList(t.P,rect);
   let baseN=toGlobalList(t.N,rect);
 
-  let nList=chooseConnectedNeutrons(pList,baseN,Math.min(n,baseN.length));
-
-  if(n>baseN.length){
-    const used=new Set(baseN.concat(pList).map(p=>keyXY(p[0],p[1])));
-    const extraPool=allNFieldsInRect(rect).filter(p=>!used.has(keyXY(p[0],p[1])));
-    extraPool.sort((a,b)=>centerDistanceGlobal(a)-centerDistanceGlobal(b));
-    nList=nList.concat(extraPool.slice(0,n-baseN.length));
-  }
+  let nList=chooseNeutronsByRules(pList,baseN,n,rect);
 
   if(nList.length!==n)throw new Error("kein Isotop möglich!");
 
@@ -282,8 +298,9 @@ function calculateValencies(particles,baseN,rect,z){
   const occ=new Set(particles.map(key));
   const vals=[];
   const seen=new Set();
+  const t=BASE_TEMPLATES[z];
 
-  function add(x,y){
+  function addGlobal(x,y){
     const k=keyXY(x,y);
     if(seen.has(k)||occ.has(k))return;
     if(x<rect.x||x>=rect.x+rect.w||y<rect.y||y>=rect.y+rect.h)return;
@@ -291,25 +308,25 @@ function calculateValencies(particles,baseN,rect,z){
     seen.add(k);
   }
 
-  // Fehlende Neutronen des ursprünglichen Bauplans werden immer als rote Wertigkeit angezeigt.
+  // 1) Fehlende Neutronen des ursprünglichen Bauplans: rote Wertigkeit.
+  //    Durch die neue Entfernungsregel sollten diese Positionen außen liegen.
   for(const n0 of baseN){
-    if(!occ.has(keyXY(n0[0],n0[1])))add(n0[0],n0[1]);
+    if(!occ.has(keyXY(n0[0],n0[1])))addGlobal(n0[0],n0[1]);
   }
 
-  // H-1: mindestens ein freier N-Platz gegen Sauerstoff.
-  if(z===1){
+  // 2) Vorgesehene Wertigkeitsplätze aus dem jeweiligen Bauplan.
+  //    Keine automatische Mittel-/Innenwertigkeit mehr.
+  for(const v of (t.V||[])){
+    const gv=g(rect,v[0],v[1]);
+    addGlobal(gv[0],gv[1]);
+  }
+
+  // 3) H-1: mindestens ein freier N-Platz gegen Sauerstoff.
+  if(z===1 && vals.length===0){
     for(let y=rect.y;y<rect.y+rect.h;y++){
       for(let x=rect.x;x<rect.x+rect.w;x++){
-        if(fieldTypeGlobal(x,y)==="N" && neighborCount([x,y],occ)>=1)add(x,y);
+        if(fieldTypeGlobal(x,y)==="N" && neighborCount([x,y],occ)>=1)addGlobal(x,y);
       }
-    }
-  }
-
-  // Allgemeine Außen-/Bindungsplätze: leere Felder mit mindestens zwei Nachbarn.
-  for(let y=rect.y;y<rect.y+rect.h;y++){
-    for(let x=rect.x;x<rect.x+rect.w;x++){
-      if(occ.has(keyXY(x,y)))continue;
-      if(neighborCount([x,y],occ)>=2)add(x,y);
     }
   }
 
@@ -405,7 +422,7 @@ function drawCircle(ctx,cx,cy,r,type,angle,phaseOffset){
   // P rechtsdrehend = gegen Uhrzeigersinn; N linksdrehend = mit Uhrzeigersinn.
   const a = angle + (phaseOffset || 0);
   ctx.rotate(type==="P" ? -a : a);
-  ctx.font=Math.floor(r*.96)+"px Arial";
+  ctx.font=Math.floor(r*.86)+"px Arial";
   ctx.textAlign="center"; ctx.textBaseline="middle";
   ctx.fillStyle=type==="P"?"#fff":"#222";
   ctx.fillText(type,0,r*.04);
@@ -436,13 +453,12 @@ function render(){
     }
   }
   for(const p of currentAtom.particles){
-    const phaseOffset=((p.x*37+p.y*61)%360)*Math.PI/180;
-    drawCircle(ctx,m.offX+p.x*m.cell+m.r,m.offY+p.y*m.cell+m.r,m.r,p.type,spinAngle,phaseOffset);
+    drawCircle(ctx,m.offX+p.x*m.cell+m.r,m.offY+p.y*m.cell+m.r,m.r,p.type,spinAngle,0);
   }
 }
 
 function animate(){
-  if(rotationOn)spinAngle += 0.036;
+  if(rotationOn)spinAngle += 0.040;
   render();
   requestAnimationFrame(animate);
 }
@@ -484,7 +500,7 @@ function toggleRotation(){
 function downloadPNG(){
   if(!lastCanvasReady){alert("Bitte zuerst ein Atom erzeugen.");return;}
   const link=document.createElement("a");
-  link.download="atomgenerator_v4_7x12.png";
+  link.download="atomgenerator_v4c_7x12.png";
   link.href=document.getElementById("atomCanvas").toDataURL("image/png");
   link.click();
 }
