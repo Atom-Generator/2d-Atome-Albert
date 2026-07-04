@@ -1,512 +1,176 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="UTF-8">
-<title>2D-Atomgenerator V4c – 7×12</title>
+<meta charset="UTF-8" />
+<title>2D-Atomgenerator V4h – 7×12 / 7er-Reihen</title>
 <style>
 body{margin:0;background:#f7f7f7}
 .atomgen{font-family:Arial,sans-serif;max-width:1180px;margin:20px auto;padding:18px;border:1px solid #bbb;border-radius:14px;background:#fff}
-.atomgen h2{margin-top:0;font-size:24px}
-.row{margin:8px 0}
-label{display:inline-block;width:170px}
-input,select{width:170px;padding:5px}
-button{margin:10px 8px 10px 0;padding:8px 14px;cursor:pointer}
-#atomCanvas{display:block;margin:18px auto 10px auto;background:white;border:1px solid #ddd;max-width:100%}
-#atomInfo{margin-top:12px;font-size:14px;line-height:1.55}
-.note{font-size:13px;color:#555;line-height:1.45}
+.atomgen h2{margin-top:0;font-size:24px}.row{margin:8px 0}label{display:inline-block;width:170px}input,select{width:170px;padding:5px}
+button{margin:10px 8px 10px 0;padding:8px 14px;cursor:pointer}#atomCanvas{display:block;margin:18px auto 10px;background:white;border:1px solid #ddd;max-width:100%}
+#atomInfo{margin-top:12px;font-size:14px;line-height:1.55}.note{font-size:13px;color:#555;line-height:1.45}
 </style>
 </head>
 <body>
 <div class="atomgen">
-<h2>2D-Atomgenerator – V4c 7×12-Arbeitsfeld</h2>
-
+<h2>2D-Atomgenerator – V4h 7×12 / 7er-Reihen</h2>
 <div class="row"><label>Element:</label><select id="elementSelect" onchange="syncElement()"></select></div>
-<div class="row"><label>Protonen P:</label><input id="protonCount" type="number" min="1" max="18" value="8" onchange="syncFromProtons()"></div>
-<div class="row"><label>Neutronen N:</label><input id="neutronCount" type="number" min="0" max="24" value="8"></div>
-
+<div class="row"><label>Protonen P:</label><input id="protonCount" type="number" min="1" max="36" value="8" onchange="syncFromProtons()"></div>
+<div class="row"><label>Neutronen N:</label><input id="neutronCount" type="number" min="0" max="48" value="8"></div>
 <button onclick="generateAtom()">Atom erzeugen</button>
 <button onclick="downloadPNG()">PNG herunterladen</button>
 <button onclick="toggleRotation()" id="rotationBtn">Rotation: EIN</button>
-
 <canvas id="atomCanvas" width="1180" height="760"></canvas>
 <div id="atomInfo"></div>
 <p class="note">
-V4c-Testversion: Alle Atome werden in einem festen 7×12-Arbeitsfeld angezeigt.
-Der Aufbau erfolgt weiterhin innerhalb des Edelgasrechtecks der jeweiligen Periode.
-Bei Edelgasen wird das vollständig besetzte Atomrechteck rot gestrichelt umrandet.
-Neu: Buchstaben etwas kleiner, gleich ausgerichtet und etwas schneller; zusätzliche Neutronen werden nur direkt an Protonen gesetzt, fehlende Neutronen nur von außen entfernt.
+V4h: Arbeitsfeld 7×12. H–Ar bleiben als feste, geprüfte Baupläne erhalten. K–Kr werden regelbasiert im Krypton-Rechteck 7×12 erzeugt.
+Ab Eisen wird der Aufbau als länglicher 7er-Reihen-Aufbau in zwei entgegengesetzte Richtungen markiert. Diese Version ist eine Arbeitsfassung zum Prüfen.
 </p>
 </div>
-
 <script>
-let lastCanvasReady=false;
-let currentAtom=null;
-let currentZ=8;
-let currentN=8;
-let spinAngle=0;
-let rotationOn=true;
-let animationStarted=false;
-
-const GLOBAL_ROWS=7;
-const GLOBAL_COLS=12;
-
 /*
-  Globale Schachbrettregel im 7×12-Feld:
-  gerade Felder = P, ungerade Felder = N.
-  Dadurch liegt H-1 als P links neben einem freien N-Platz.
+  2D-Atomgenerator V4h
+  Modell nach Helmut Albert
+  Programmierung: ChatGPT / OpenAI
+
+  Neu in V4h:
+  - Unterstützung bis Krypton Z=36.
+  - 7×12-Krypton-Arbeitsfeld.
+  - Ab Eisen Kennzeichnung als 7er-Reihen-Aufbau in zwei entgegengesetzte Richtungen.
+  - K–Kr werden aus dem 7×12-Krypton-Rechteck subtraktiv erzeugt.
+  - Wertigkeiten werden weiterhin automatisch aus freien komplementären Plätzen bestimmt.
 */
-function fieldTypeGlobal(x,y){ return ((x+y)%2===0) ? "P" : "N"; }
+let lastCanvasReady=false,currentAtom=null,currentZ=8,currentN=8,spinAngle=0,rotationOn=true,animationStarted=false;
+const GLOBAL_ROWS=7, GLOBAL_COLS=12;
+function keyXY(x,y){return x+","+y} function key(p){return p.x+","+p.y}
+function fieldTypeGlobal(x,y){return ((x+y)%2===0)?"P":"N"}
 
 const ELEMENTS={
-"1": ["H", "Wasserstoff", 0],
-"2": ["He", "Helium", 2],
-"3": ["Li", "Lithium", 4],
-"4": ["Be", "Beryllium", 5],
-"5": ["B", "Bor", 6],
-"6": ["C", "Kohlenstoff", 6],
-"7": ["N", "Stickstoff", 7],
-"8": ["O", "Sauerstoff", 8],
-"9": ["F", "Fluor", 10],
-"10": ["Ne", "Neon", 10],
-"11": ["Na", "Natrium", 12],
-"12": ["Mg", "Magnesium", 12],
-"13": ["Al", "Aluminium", 14],
-"14": ["Si", "Silicium", 14],
-"15": ["P", "Phosphor", 16],
-"16": ["S", "Schwefel", 16],
-"17": ["Cl", "Chlor", 18],
-"18": ["Ar", "Argon", 18]
+  1:["H","Wasserstoff",0],2:["He","Helium",2],3:["Li","Lithium",4],4:["Be","Beryllium",5],5:["B","Bor",6],6:["C","Kohlenstoff",6],7:["N","Stickstoff",7],8:["O","Sauerstoff",8],9:["F","Fluor",10],10:["Ne","Neon",10],
+  11:["Na","Natrium",12],12:["Mg","Magnesium",12],13:["Al","Aluminium",14],14:["Si","Silicium",14],15:["P","Phosphor",16],16:["S","Schwefel",16],17:["Cl","Chlor",18],18:["Ar","Argon",18],
+  19:["K","Kalium",20],20:["Ca","Calcium",20],21:["Sc","Scandium",24],22:["Ti","Titan",26],23:["V","Vanadium",28],24:["Cr","Chrom",28],25:["Mn","Mangan",30],26:["Fe","Eisen",30],27:["Co","Cobalt",32],28:["Ni","Nickel",30],29:["Cu","Kupfer",35],30:["Zn","Zink",35],31:["Ga","Gallium",39],32:["Ge","Germanium",41],33:["As","Arsen",42],34:["Se","Selen",45],35:["Br","Brom",45],36:["Kr","Krypton",48]
 };
-
-/*
-  Perioden-/Edelgasrechtecke innerhalb des 7×12-Arbeitsfeldes.
-  x/y/w/h sind globale Rasterkoordinaten.
-*/
 const PERIOD_RECTS={
-  "HE": {id:"HE", name:"Helium-Rechteck", nobleZ:2,  x:5, y:2, w:2,  h:2,  description:"1. Periode / He-4 / 2×2"},
-  "NE": {id:"NE", name:"Neon-Rechteck",   nobleZ:10, x:4, y:1, w:4,  h:5,  description:"2. Periode / Ne-20 / 4×5"},
-  "AR": {id:"AR", name:"Argon-Rechteck",  nobleZ:18, x:3, y:0, w:6,  h:6,  description:"3. Periode / Ar-36 / 6×6"},
-  "KR": {id:"KR", name:"Krypton-Rechteck",nobleZ:36, x:0, y:0, w:12, h:7,  description:"4. Periode / Kr-84 / 7×12"}
+  HE:{id:"HE",name:"Helium-Rechteck",nobleZ:2,x:5,y:2,w:2,h:2,description:"He-4 / 2×2"},
+  NE:{id:"NE",name:"Neon-Rechteck",nobleZ:10,x:4,y:1,w:4,h:5,description:"Ne-20 / 4×5"},
+  AR:{id:"AR",name:"Argon-Rechteck",nobleZ:18,x:3,y:0,w:6,h:6,description:"Ar-36 / 6×6"},
+  KR:{id:"KR",name:"Krypton-Rechteck",nobleZ:36,x:0,y:0,w:12,h:7,description:"Kr-84 / 7×12"}
 };
+function g(rect,x,y){return [rect.x+x,rect.y+y]}
+function periodForZ(z){if(z<=2)return PERIOD_RECTS.HE;if(z<=10)return PERIOD_RECTS.NE;if(z<=18)return PERIOD_RECTS.AR;return PERIOD_RECTS.KR}
 
-function periodForZ(z){
-  if(z<=2)return PERIOD_RECTS.HE;
-  if(z<=10)return PERIOD_RECTS.NE;
-  if(z<=18)return PERIOD_RECTS.AR;
-  return PERIOD_RECTS.KR;
-}
-
-function g(rect,x,y){ return [rect.x+x, rect.y+y]; }
-
-/*
-  Vorlagen in lokalen Koordinaten des jeweiligen Edelgasrechtecks.
-  Die alten Baupläne bleiben weitgehend erhalten, werden aber beim Bauen
-  in das globale 7×12-Feld übertragen.
-*/
 const BASE_TEMPLATES={
-"1": {rect:"HE", title:"H-1", P:[[0,1]], N:[], V:[[1,1]]},
-"2": {rect:"HE", title:"He-4", P:[[1,0],[0,1]], N:[[0,0],[1,1]], V:[]},
-
-/* Li-7 und Be-9: 3×3-Anordnung innerhalb des Neonrechtecks.
-   Lokale Koordinaten sind so gesetzt, dass sie im globalen 7×12-Schachbrett korrekt liegen. */
-"3": {rect:"NE", title:"Li-7", P:[[1,0],[0,1],[1,2]], N:[[0,0],[2,0],[1,1],[0,2]], V:[[2,1],[2,2]]},
-
-"4": {rect:"NE", title:"Be-9", P:[[1,0],[0,1],[2,1],[1,2]], N:[[0,0],[2,0],[1,1],[0,2],[2,2]], V:[[3,0],[3,1],[3,2]]},
-"5": {rect:"NE", title:"B-11", P:[[2,1],[1,2],[3,2],[0,3],[2,3]], N:[[2,0],[1,1],[3,1],[0,2],[2,2],[1,3]], V:[[1,0],[3,0],[0,1],[3,3]]},
-"6": {rect:"NE", title:"C-12", P:[[2,1],[1,2],[3,2],[0,3],[2,3],[1,4]], N:[[2,0],[1,1],[3,1],[0,2],[2,2],[1,3]], V:[[1,0],[3,0],[0,1],[3,3],[0,4],[2,4]]},
-"7": {rect:"NE", title:"N-14", P:[[0,1],[2,1],[1,2],[3,2],[0,3],[2,3],[1,4]], N:[[2,0],[1,1],[3,1],[0,2],[2,2],[1,3],[3,3]], V:[[1,0],[3,0],[0,4],[2,4]]},
-"8": {rect:"NE", title:"O-16", P:[[1,0],[0,1],[2,1],[1,2],[3,2],[0,3],[2,3],[1,4]], N:[[2,0],[1,1],[3,1],[0,2],[2,2],[1,3],[3,3],[2,4]], V:[[0,0],[3,0],[0,4],[3,4]]},
-"9": {rect:"NE", title:"F-19", P:[[1,0],[0,1],[2,1],[1,2],[3,2],[0,3],[2,3],[1,4],[3,4]], N:[[0,0],[2,0],[1,1],[3,1],[0,2],[2,2],[1,3],[3,3],[0,4],[2,4]], V:[[3,0]]},
-"10":{rect:"NE", title:"Ne-20",P:[[1,0],[3,0],[0,1],[2,1],[1,2],[3,2],[0,3],[2,3],[1,4],[3,4]], N:[[0,0],[2,0],[1,1],[3,1],[0,2],[2,2],[1,3],[3,3],[0,4],[2,4]], V:[]},
-
-"11":{rect:"AR", title:"Na-23",P:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[0,3],[2,3],[1,4],[3,4]], N:[[0,0],[2,0],[1,1],[3,1],[0,2],[2,2],[4,2],[1,3],[3,3],[0,4],[2,4],[4,4]], V:[[4,0],[4,3]]},
-
-/* Mg/Al bleiben vorerst als besondere, bewährte 5×6-Teilformen innerhalb des Ar-Feldes */
-"12":{rect:"AR", title:"Mg-24",P:[[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[2,4],[4,4]], N:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[2,3],[4,3],[1,4],[3,4]], V:[[0,0],[5,0],[0,3],[5,3]]},
-"13":{rect:"AR", title:"Al-27",P:[[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[5,3],[2,4],[4,4]], N:[[1,0],[3,0],[5,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[0,3],[2,3],[4,3],[1,4],[3,4]], V:[[0,0],[0,4],[5,4]]},
-
-"14":{rect:"AR", title:"Si-28",P:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[2,3],[4,3],[1,4],[3,4],[5,4],[2,5],[4,5]], N:[[2,0],[4,0],[1,1],[3,1],[5,1],[2,2],[4,2],[1,3],[3,3],[0,4],[2,4],[4,4],[1,5],[3,5]], V:[[0,0],[5,0],[0,2],[5,2],[0,3],[5,3],[0,5],[5,5]]},
-"15":{rect:"AR", title:"P-31",P:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[2,3],[4,3],[1,4],[3,4],[5,4],[2,5],[4,5]], N:[[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[5,3],[0,4],[2,4],[4,4],[1,5],[3,5]], V:[[0,0],[5,0],[0,3],[0,5],[5,5]]},
-"16":{rect:"AR", title:"S-32",P:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[0,3],[2,3],[4,3],[1,4],[3,4],[5,4],[2,5],[4,5]], N:[[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[5,3],[0,4],[2,4],[4,4],[1,5],[3,5]], V:[[0,0],[5,0],[0,5],[5,5]]},
-"17":{rect:"AR", title:"Cl-35",P:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[0,3],[2,3],[4,3],[1,4],[3,4],[5,4],[0,5],[2,5],[4,5]], N:[[0,0],[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[5,3],[0,4],[2,4],[4,4],[1,5],[3,5],[5,5]], V:[[5,0]]},
-"18":{rect:"AR", title:"Ar-36",P:[[1,0],[3,0],[5,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[0,3],[2,3],[4,3],[1,4],[3,4],[5,4],[0,5],[2,5],[4,5]], N:[[0,0],[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[5,3],[0,4],[2,4],[4,4],[1,5],[3,5],[5,5]], V:[]}
+"1":{rect:"HE",title:"H-1",P:[[0,1]],N:[],V:[[1,1]]},
+"2":{rect:"HE",title:"He-4",P:[[1,0],[0,1]],N:[[0,0],[1,1]],V:[]},
+"3":{rect:"NE",title:"Li-7",P:[[2,0],[1,1],[2,2]],N:[[1,0],[0,1],[2,1],[1,2]],V:[[0,0],[0,2]]},
+"4":{rect:"NE",title:"Be-9",P:[[2,0],[1,1],[3,1],[2,2]],N:[[1,0],[0,1],[2,1],[1,2],[3,2]],V:[[0,0],[3,0],[0,2]]},
+"5":{rect:"NE",title:"B-11",P:[[2,1],[1,2],[3,2],[0,3],[2,3]],N:[[2,0],[1,1],[3,1],[0,2],[2,2],[1,3]],V:[[1,0],[3,0],[0,1],[3,3]]},
+"6":{rect:"NE",title:"C-12",P:[[2,1],[1,2],[3,2],[0,3],[2,3],[1,4]],N:[[2,0],[1,1],[3,1],[0,2],[2,2],[1,3]],V:[[1,0],[3,0],[0,1],[3,3],[0,4],[2,4]]},
+"7":{rect:"NE",title:"N-14",P:[[0,1],[2,1],[1,2],[3,2],[0,3],[2,3],[1,4]],N:[[2,0],[1,1],[3,1],[0,2],[2,2],[1,3],[3,3]],V:[[1,0],[3,0],[0,4],[2,4]]},
+"8":{rect:"NE",title:"O-16",P:[[1,0],[0,1],[2,1],[1,2],[3,2],[0,3],[2,3],[1,4]],N:[[2,0],[1,1],[3,1],[0,2],[2,2],[1,3],[3,3],[2,4]],V:[[0,0],[3,0],[0,4],[3,4]]},
+"9":{rect:"NE",title:"F-19",P:[[1,0],[0,1],[2,1],[1,2],[3,2],[0,3],[2,3],[1,4],[3,4]],N:[[0,0],[2,0],[1,1],[3,1],[0,2],[2,2],[1,3],[3,3],[0,4],[2,4]],V:[[3,0]]},
+"10":{rect:"NE",title:"Ne-20",P:[[1,0],[3,0],[0,1],[2,1],[1,2],[3,2],[0,3],[2,3],[1,4],[3,4]],N:[[0,0],[2,0],[1,1],[3,1],[0,2],[2,2],[1,3],[3,3],[0,4],[2,4]],V:[]},
+"11":{rect:"AR",title:"Na-23",P:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[0,3],[2,3],[1,4],[3,4]],N:[[0,0],[2,0],[1,1],[3,1],[0,2],[2,2],[4,2],[1,3],[3,3],[0,4],[2,4],[4,4]],V:[[4,0],[4,3]]},
+"12":{rect:"AR",title:"Mg-24",P:[[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[2,4],[4,4]],N:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[2,3],[4,3],[1,4],[3,4]],V:[[0,0],[5,0],[0,3],[5,3]]},
+"13":{rect:"AR",title:"Al-27",P:[[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[5,3],[2,4],[4,4]],N:[[1,0],[3,0],[5,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[0,3],[2,3],[4,3],[1,4],[3,4]],V:[[0,0],[0,4],[5,4]]},
+"14":{rect:"AR",title:"Si-28",P:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[2,3],[4,3],[1,4],[3,4],[5,4],[2,5],[4,5]],N:[[2,0],[4,0],[1,1],[3,1],[5,1],[2,2],[4,2],[1,3],[3,3],[0,4],[2,4],[4,4],[1,5],[3,5]],V:[[0,0],[5,0],[0,2],[5,2],[0,3],[5,3],[0,5],[5,5]]},
+"15":{rect:"AR",title:"P-31",P:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[2,3],[4,3],[1,4],[3,4],[5,4],[2,5],[4,5]],N:[[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[5,3],[0,4],[2,4],[4,4],[1,5],[3,5]],V:[[0,0],[5,0],[0,3],[0,5],[5,5]]},
+"16":{rect:"AR",title:"S-32",P:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[0,3],[2,3],[4,3],[1,4],[3,4],[5,4],[2,5],[4,5]],N:[[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[5,3],[0,4],[2,4],[4,4],[1,5],[3,5]],V:[[0,0],[5,0],[0,5],[5,5]]},
+"17":{rect:"AR",title:"Cl-35",P:[[1,0],[3,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[0,3],[2,3],[4,3],[1,4],[3,4],[5,4],[0,5],[2,5],[4,5]],N:[[0,0],[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[5,3],[0,4],[2,4],[4,4],[1,5],[3,5],[5,5]],V:[[5,0]]},
+"18":{rect:"AR",title:"Ar-36",P:[[1,0],[3,0],[5,0],[0,1],[2,1],[4,1],[1,2],[3,2],[5,2],[0,3],[2,3],[4,3],[1,4],[3,4],[5,4],[0,5],[2,5],[4,5]],N:[[0,0],[2,0],[4,0],[1,1],[3,1],[5,1],[0,2],[2,2],[4,2],[1,3],[3,3],[5,3],[0,4],[2,4],[4,4],[1,5],[3,5],[5,5]],V:[]}
 };
 
-function keyXY(x,y){return x+","+y;}
-function key(p){return p.x+","+p.y;}
-
-function toGlobalList(list,rect){
-  return list.map(p=>g(rect,p[0],p[1]));
+function templateParityType(t,rect){
+  const p0=t.P&&t.P.length?g(rect,t.P[0][0],t.P[0][1]):null;
+  const n0=t.N&&t.N.length?g(rect,t.N[0][0],t.N[0][1]):null;
+  if(p0){const pp=(p0[0]+p0[1])%2;return (x,y)=>((x+y)%2)===pp?"P":"N"}
+  if(n0){const np=(n0[0]+n0[1])%2;return (x,y)=>((x+y)%2)===np?"N":"P"}
+  return fieldTypeGlobal;
 }
+function toGlobalList(list,rect){return list.map(p=>g(rect,p[0],p[1]))}
+function occupiedSetFromLists(pList,nList){const s=new Set();pList.forEach(p=>s.add(keyXY(p[0],p[1])));nList.forEach(n=>s.add(keyXY(n[0],n[1])));return s}
+function neighborCount(pos,set){const x=pos[0],y=pos[1];let c=0;[[1,0],[-1,0],[0,1],[0,-1]].forEach(d=>{if(set.has(keyXY(x+d[0],y+d[1])))c++});return c}
+function protonNeighborCount(pos,pList){const ps=new Set(pList.map(p=>keyXY(p[0],p[1])));return neighborCount(pos,ps)}
+function areParticlesConnected(pList,nList){const all=pList.concat(nList);if(!all.length)return false;const set=occupiedSetFromLists(pList,nList);const seen=new Set([keyXY(all[0][0],all[0][1])]);const stack=[all[0]];while(stack.length){const p=stack.pop();[[1,0],[-1,0],[0,1],[0,-1]].forEach(d=>{const q=[p[0]+d[0],p[1]+d[1]],k=keyXY(q[0],q[1]);if(set.has(k)&&!seen.has(k)){seen.add(k);stack.push(q)}})}return seen.size===set.size}
+function outerScore(pos,rect){const left=pos[0]-rect.x,right=(rect.x+rect.w-1)-pos[0],top=pos[1]-rect.y,bottom=(rect.y+rect.h-1)-pos[1];const edge=Math.min(left,right,top,bottom);const cx=rect.x+(rect.w-1)/2,cy=rect.y+(rect.h-1)/2;const dc=Math.abs(pos[0]-cx)+Math.abs(pos[1]-cy);return dc*10-edge*50}
+function allFieldsInRect(rect,fieldType,type){let out=[];for(let y=rect.y;y<rect.y+rect.h;y++){for(let x=rect.x;x<rect.x+rect.w;x++){if(fieldType(x,y)===type)out.push([x,y])}}return out}
 
-function centerDistanceGlobal(p){
-  const cx=(GLOBAL_COLS-1)/2, cy=(GLOBAL_ROWS-1)/2;
-  return Math.abs(p[0]-cx)+Math.abs(p[1]-cy);
-}
-
-function neighborCount(pos,set){
-  const x=pos[0], y=pos[1];
-  let c=0;
-  if(set.has(keyXY(x+1,y)))c++;
-  if(set.has(keyXY(x-1,y)))c++;
-  if(set.has(keyXY(x,y+1)))c++;
-  if(set.has(keyXY(x,y-1)))c++;
-  return c;
-}
-
-function occupiedSetFromLists(pList,nList){
-  const s=new Set();
-  for(const p of pList)s.add(keyXY(p[0],p[1]));
-  for(const n of nList)s.add(keyXY(n[0],n[1]));
-  return s;
-}
-
-function areParticlesConnected(pList,nList){
-  const all=pList.concat(nList);
-  if(all.length===0)return false;
-  const set=occupiedSetFromLists(pList,nList);
-  const start=keyXY(all[0][0],all[0][1]);
-  const seen=new Set([start]);
-  const stack=[all[0]];
-  while(stack.length){
-    const p=stack.pop();
-    const ns=[[p[0]+1,p[1]],[p[0]-1,p[1]],[p[0],p[1]+1],[p[0],p[1]-1]];
-    for(const q of ns){
-      const k=keyXY(q[0],q[1]);
-      if(set.has(k) && !seen.has(k)){
-        seen.add(k);
-        stack.push(q);
-      }
-    }
-  }
-  return seen.size===set.size;
-}
-
-/*
-  Isotopenlogik V4c:
-  - Bei Unterzahl werden Neutronen nur von außen entfernt.
-    Ein Neutron darf nur dann entfernt werden, wenn der Gesamtverband verbunden bleibt.
-    Damit werden keine inneren Neutronen herausgenommen.
-  - Bei Überzahl dürfen zusätzliche Neutronen nur auf freien N-Feldern liegen,
-    die direkt an mindestens ein Proton angrenzen. Niemals frei.
-*/
-function protonNeighborCount(pos,pList){
-  const x=pos[0], y=pos[1];
-  let c=0;
-  const ps=new Set(pList.map(p=>keyXY(p[0],p[1])));
-  if(ps.has(keyXY(x+1,y)))c++;
-  if(ps.has(keyXY(x-1,y)))c++;
-  if(ps.has(keyXY(x,y+1)))c++;
-  if(ps.has(keyXY(x,y-1)))c++;
-  return c;
-}
-
-function outerScore(pos,rect){
-  const left=pos[0]-rect.x, right=(rect.x+rect.w-1)-pos[0];
-  const top=pos[1]-rect.y, bottom=(rect.y+rect.h-1)-pos[1];
-  const distToEdge=Math.min(left,right,top,bottom);
-  const cx=rect.x+(rect.w-1)/2, cy=rect.y+(rect.h-1)/2;
-  const distCenter=Math.abs(pos[0]-cx)+Math.abs(pos[1]-cy);
-  return distCenter*10 - distToEdge*50; // außen zuerst
-}
-
-function chooseNeutronsByRules(pList,baseN,wantedN,rect){
+function chooseNeutronsByRules(pList,baseN,wantedN,rect,fieldType){
   if(wantedN===baseN.length)return baseN.slice();
-
-  if(wantedN<baseN.length){
-    let current=baseN.slice();
-    while(current.length>wantedN){
-      let bestIndex=-1, bestScore=-999999;
-      for(let i=0;i<current.length;i++){
-        const candidate=current[i];
-        const rest=current.slice(0,i).concat(current.slice(i+1));
-        if(!areParticlesConnected(pList,rest))continue;
-        const sc=outerScore(candidate,rect) - neighborCount(candidate,occupiedSetFromLists(pList,current))*2;
-        if(sc>bestScore){bestScore=sc; bestIndex=i;}
-      }
-      if(bestIndex<0)throw new Error("kein Isotop möglich! Neutronen können nicht weiter von außen entfernt werden, ohne den Zusammenhang aufzulösen.");
-      current.splice(bestIndex,1);
-    }
-    return current;
-  }
-
-  // wantedN > baseN.length
-  let current=baseN.slice();
-  const used=new Set(baseN.concat(pList).map(p=>keyXY(p[0],p[1])));
-  let candidates=allNFieldsInRect(rect)
-    .filter(p=>!used.has(keyXY(p[0],p[1])))
-    .filter(p=>protonNeighborCount(p,pList)>0); // direkt an Proton
-
-  candidates.sort((a,b)=>{
-    const pa=protonNeighborCount(a,pList), pb=protonNeighborCount(b,pList);
-    if(pb!==pa)return pb-pa;
-    return outerScore(b,rect)-outerScore(a,rect);
-  });
-
-  for(const c of candidates){
-    if(current.length>=wantedN)break;
-    current.push(c);
-  }
-  if(current.length!==wantedN)throw new Error("kein Isotop möglich! Zusätzliche Neutronen wären nicht direkt an ein Proton angedockt.");
-  return current;
+  if(wantedN<baseN.length){let current=baseN.slice();while(current.length>wantedN){let best=-1,score=-1e9;for(let i=0;i<current.length;i++){const rest=current.slice(0,i).concat(current.slice(i+1));if(!areParticlesConnected(pList,rest))continue;const sc=outerScore(current[i],rect)-neighborCount(current[i],occupiedSetFromLists(pList,current))*2;if(sc>score){score=sc;best=i}}if(best<0)throw new Error("kein Isotop möglich: Neutronen können nicht weiter entfernt werden.");current.splice(best,1)}return current}
+  let current=baseN.slice();const used=new Set(baseN.concat(pList).map(p=>keyXY(p[0],p[1])));let cand=allFieldsInRect(rect,fieldType,"N").filter(p=>!used.has(keyXY(p[0],p[1]))).filter(p=>protonNeighborCount(p,pList)>0);
+  cand.sort((a,b)=>protonNeighborCount(b,pList)-protonNeighborCount(a,pList)||outerScore(b,rect)-outerScore(a,rect));
+  for(const c of cand){if(current.length>=wantedN)break;current.push(c)}
+  if(current.length!==wantedN)throw new Error("kein Isotop möglich: zusätzliche Neutronen hätten keinen direkten Protonenkontakt.");return current;
 }
+function specialNeutronsForIsotope(z,n,rect){if(z===4&&n===3)return [[1,0],[2,1],[1,2]].map(p=>g(rect,p[0],p[1]));if(z===4&&n===4)return [[1,0],[0,1],[2,1],[1,2]].map(p=>g(rect,p[0],p[1]));return null}
 
-function allNFieldsInRect(rect){
-  const out=[];
-  for(let y=rect.y;y<rect.y+rect.h;y++){
-    for(let x=rect.x;x<rect.x+rect.w;x++){
-      if(fieldTypeGlobal(x,y)==="N")out.push([x,y]);
-    }
+// Vollständiges Krypton-Rechteck: 7×12 = 84 Plätze = 36 P + 48 N nach globaler Phase.
+function kryptonFullLists(){
+  const rect=PERIOD_RECTS.KR, P=[], N=[];
+  for(let y=rect.y;y<rect.y+rect.h;y++){for(let x=rect.x;x<rect.x+rect.w;x++){(fieldTypeGlobal(x,y)==="P"?P:N).push([x,y])}}
+  return {P,N};
+}
+function removalOrderForKrypton(type){
+  const rect=PERIOD_RECTS.KR;
+  let fields=allFieldsInRect(rect,fieldTypeGlobal,type);
+  fields.sort((a,b)=>{
+    // außen zuerst, Ecken und Rand zuerst, dann symmetrisch von rechts/links.
+    const sa=outerScore(a,rect), sb=outerScore(b,rect); if(sb!==sa)return sb-sa;
+    const ca=Math.abs(a[0]-5.5)+Math.abs(a[1]-3), cb=Math.abs(b[0]-5.5)+Math.abs(b[1]-3); if(cb!==ca)return cb-ca;
+    return (b[0]-a[0]) || (b[1]-a[1]);
+  });
+  return fields;
+}
+function buildKryptonPeriodAtom(z,n){
+  const rect=PERIOD_RECTS.KR, full=kryptonFullLists();
+  let pList=full.P.slice(), nList=full.N.slice();
+  const removeP=36-z, removeN=48-n;
+  if(removeP<0||removeN<0)throw new Error("Krypton-Rechteck überschritten.");
+  for(const r of removalOrderForKrypton("P").slice(0,removeP)){pList=pList.filter(p=>keyXY(p[0],p[1])!==keyXY(r[0],r[1]))}
+  for(const r of removalOrderForKrypton("N").slice(0,Math.max(0,removeN))){nList=nList.filter(p=>keyXY(p[0],p[1])!==keyXY(r[0],r[1]))}
+  if(removeN<0){
+    // Mehr als Kr-84 nicht in V4h; wird später für Rb/Sr und schwerere Elemente erweitert.
+    throw new Error("Mehr als 48 Neutronen sind in V4h noch nicht vorgesehen.");
   }
-  return out;
+  return {rect,template:{title:ELEMENTS[z][0]+"-"+(z+n),rect:"KR"},baseN:full.N,particles:pList.map(p=>({x:p[0],y:p[1],type:"P"})).concat(nList.map(p=>({x:p[0],y:p[1],type:"N"}))),valencies:[],fieldType:fieldTypeGlobal,rowMode:z>=26};
 }
 
 function buildAtom(z,n){
-  const t=BASE_TEMPLATES[z];
-  if(!t)throw new Error("Für dieses Element ist noch kein Bauplan hinterlegt.");
-  const rect=PERIOD_RECTS[t.rect];
-
-  let pList=toGlobalList(t.P,rect);
-  let baseN=toGlobalList(t.N,rect);
-
-  let nList=chooseNeutronsByRules(pList,baseN,n,rect);
-
+  if(z>=19){const atom=buildKryptonPeriodAtom(z,n);validateParticles(atom.particles,atom.rect,atom.fieldType);atom.valencies=calculateValencies(atom.particles,atom.baseN,atom.rect,z,atom.fieldType);return atom}
+  const t=BASE_TEMPLATES[z];if(!t)throw new Error("Für dieses Element ist noch kein Bauplan hinterlegt.");const rect=PERIOD_RECTS[t.rect], fieldType=templateParityType(t,rect);
+  const pList=toGlobalList(t.P,rect), baseN=toGlobalList(t.N,rect);const special=specialNeutronsForIsotope(z,n,rect);const nList=special||chooseNeutronsByRules(pList,baseN,n,rect,fieldType);
   if(nList.length!==n)throw new Error("kein Isotop möglich!");
-
-  const particles=[];
-  for(const p of pList)particles.push({x:p[0],y:p[1],type:"P"});
-  for(const nn of nList)particles.push({x:nn[0],y:nn[1],type:"N"});
-
-  validateParticles(particles,rect);
-
-  const vals=calculateValencies(particles,baseN,rect,z);
-  return {rect:rect,template:t,baseN:baseN,particles:particles,valencies:vals};
+  const particles=pList.map(p=>({x:p[0],y:p[1],type:"P"})).concat(nList.map(nn=>({x:nn[0],y:nn[1],type:"N"})));
+  validateParticles(particles,rect,fieldType);const vals=calculateValencies(particles,baseN,rect,z,fieldType);return {rect,template:t,baseN,particles,valencies:vals,fieldType,rowMode:false};
 }
-
-function validateParticles(particles,rect){
-  const seen=new Set();
-  for(const p of particles){
-    if(p.x<0||p.x>=GLOBAL_COLS||p.y<0||p.y>=GLOBAL_ROWS)throw new Error("Baustein außerhalb des 7×12-Feldes.");
-    if(fieldTypeGlobal(p.x,p.y)!==p.type)throw new Error("Schachbrettregel verletzt: "+p.type+" auf falschem Feld ("+p.x+","+p.y+").");
-    const k=key(p);
-    if(seen.has(k))throw new Error("Doppelte Belegung: "+k);
-    seen.add(k);
-  }
+function validateParticles(particles,rect,fieldType){
+  const seen=new Set();for(const p of particles){if(p.x<0||p.x>=GLOBAL_COLS||p.y<0||p.y>=GLOBAL_ROWS)throw new Error("Baustein außerhalb des Feldes.");if(fieldType(p.x,p.y)!==p.type)throw new Error("Schachbrettregel verletzt: "+p.type+" auf falschem Feld ("+p.x+","+p.y+").");const k=key(p);if(seen.has(k))throw new Error("Doppelte Belegung: "+k);seen.add(k)}
+  const byKey=new Map(particles.map(p=>[key(p),p.type]));for(const p of particles){[[1,0],[-1,0],[0,1],[0,-1]].forEach(d=>{if(byKey.get(keyXY(p.x+d[0],p.y+d[1]))===p.type)throw new Error("Schachbrettregel verletzt: gleiche Bausteine berühren sich.")})}
 }
-
-function calculateValencies(particles,baseN,rect,z){
-  const occ=new Set(particles.map(key));
-  const vals=[];
-  const seen=new Set();
-  const t=BASE_TEMPLATES[z];
-
-  function addGlobal(x,y){
-    const k=keyXY(x,y);
-    if(seen.has(k)||occ.has(k))return;
-    if(x<rect.x||x>=rect.x+rect.w||y<rect.y||y>=rect.y+rect.h)return;
-    vals.push([x,y,fieldTypeGlobal(x,y)]);
-    seen.add(k);
-  }
-
-  // 1) Fehlende Neutronen des ursprünglichen Bauplans: rote Wertigkeit.
-  //    Durch die neue Entfernungsregel sollten diese Positionen außen liegen.
-  for(const n0 of baseN){
-    if(!occ.has(keyXY(n0[0],n0[1])))addGlobal(n0[0],n0[1]);
-  }
-
-  // 2) Vorgesehene Wertigkeitsplätze aus dem jeweiligen Bauplan.
-  //    Keine automatische Mittel-/Innenwertigkeit mehr.
-  for(const v of (t.V||[])){
-    const gv=g(rect,v[0],v[1]);
-    addGlobal(gv[0],gv[1]);
-  }
-
-  // 3) H-1: mindestens ein freier N-Platz gegen Sauerstoff.
-  if(z===1 && vals.length===0){
-    for(let y=rect.y;y<rect.y+rect.h;y++){
-      for(let x=rect.x;x<rect.x+rect.w;x++){
-        if(fieldTypeGlobal(x,y)==="N" && neighborCount([x,y],occ)>=1)addGlobal(x,y);
-      }
-    }
-  }
-
+function calculateValencies(particles,baseN,rect,z,fieldType){
+  const occ=new Set(particles.map(key)), byKey=new Map(particles.map(p=>[key(p),p.type])), vals=[];
+  function cnt(x,y,type){let c=0;[[1,0],[-1,0],[0,1],[0,-1]].forEach(d=>{if(byKey.get(keyXY(x+d[0],y+d[1]))===type)c++});return c}
+  for(let y=rect.y;y<rect.y+rect.h;y++){for(let x=rect.x;x<rect.x+rect.w;x++){if(occ.has(keyXY(x,y)))continue;const ft=fieldType(x,y);if(ft==="P"){const n=cnt(x,y,"N");if(n===2||n===3)vals.push([x,y,"P"])}else{const p=cnt(x,y,"P");if(p===2||p===3)vals.push([x,y,"N"])}}}
+  if(z===1){for(let y=rect.y;y<rect.y+rect.h;y++)for(let x=rect.x;x<rect.x+rect.w;x++)if(!occ.has(keyXY(x,y))&&fieldType(x,y)==="N"&&!vals.some(v=>v[0]===x&&v[1]===y))vals.push([x,y,"N"])}
   return vals;
 }
 
-function initElements(){
-  const sel=document.getElementById("elementSelect"); sel.innerHTML="";
-  for(let z=1;z<=18;z++){
-    const e=ELEMENTS[z]; const opt=document.createElement("option");
-    opt.value=z; opt.textContent=z+" – "+e[1]+" ("+e[0]+")"; sel.appendChild(opt);
-  }
-  sel.value="8";
-}
-
-function syncElement(){
-  const z=parseInt(document.getElementById("elementSelect").value,10);
-  document.getElementById("protonCount").value=z;
-  document.getElementById("neutronCount").value=ELEMENTS[z][2];
-  generateAtom();
-}
-
-function syncFromProtons(){
-  const z=parseInt(document.getElementById("protonCount").value,10);
-  if(ELEMENTS[z]){
-    document.getElementById("elementSelect").value=z;
-    document.getElementById("neutronCount").value=ELEMENTS[z][2];
-  }
-}
-
-function gridMetrics(){
-  const canvas=document.getElementById("atomCanvas");
-  const padX=60, padTop=90, padBottom=55;
-  const cell=Math.min((canvas.width-padX*2)/GLOBAL_COLS,(canvas.height-padTop-padBottom)/GLOBAL_ROWS);
-  const offX=(canvas.width-GLOBAL_COLS*cell)/2;
-  const offY=padTop;
-  return {cell, r:cell/2, offX, offY};
-}
-
-function drawGrid(ctx,m){
-  ctx.save();
-  ctx.setLineDash([6,6]);
-  ctx.strokeStyle="#666";
-  ctx.lineWidth=1.2;
-  for(let x=0;x<=GLOBAL_COLS;x++){
-    ctx.beginPath();ctx.moveTo(m.offX+x*m.cell,m.offY);ctx.lineTo(m.offX+x*m.cell,m.offY+GLOBAL_ROWS*m.cell);ctx.stroke();
-  }
-  for(let y=0;y<=GLOBAL_ROWS;y++){
-    ctx.beginPath();ctx.moveTo(m.offX,m.offY+y*m.cell);ctx.lineTo(m.offX+GLOBAL_COLS*m.cell,m.offY+y*m.cell);ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function drawRectOutline(ctx,m,rect,isNoble){
-  ctx.save();
-  ctx.setLineDash([16,10]);
-  ctx.strokeStyle=isNoble ? "#d22" : "rgba(80,80,80,0.35)";
-  ctx.lineWidth=isNoble ? 5 : 2;
-  ctx.strokeRect(m.offX+rect.x*m.cell,m.offY+rect.y*m.cell,rect.w*m.cell,rect.h*m.cell);
-  ctx.restore();
-}
-
-function drawVacancy(ctx,cx,cy,r,valenceType){
-  const isHydrogenValence = valenceType === "P";
-  const mainColor = isHydrogenValence ? "rgba(0,155,255,0.95)" : "rgba(255,80,80,0.95)";
-  const softColor = isHydrogenValence ? "rgba(0,155,255,0.20)" : "rgba(255,80,80,0.20)";
-  ctx.save();
-  const grad = ctx.createRadialGradient(cx,cy,r*.05,cx,cy,r*.70);
-  grad.addColorStop(0, mainColor);
-  grad.addColorStop(0.45, softColor);
-  grad.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.beginPath(); ctx.arc(cx,cy,r*.70,0,Math.PI*2);
-  ctx.fillStyle=grad; ctx.fill();
-
-  ctx.beginPath(); ctx.arc(cx,cy,r*.96,0,Math.PI*2);
-  ctx.setLineDash([8,6]); ctx.strokeStyle="#222"; ctx.lineWidth=2.2; ctx.stroke();
-  ctx.restore();
-}
-
-function drawCircle(ctx,cx,cy,r,type,angle,phaseOffset){
-  const grad=ctx.createRadialGradient(cx-r*.25,cy-r*.35,r*.08,cx,cy,r);
-  if(type==="P"){
-    grad.addColorStop(0,"#ddd");grad.addColorStop(.55,"#999");grad.addColorStop(1,"#666");
-  }else{
-    grad.addColorStop(0,"#fff");grad.addColorStop(.6,"#eee");grad.addColorStop(1,"#ccc");
-  }
-  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fillStyle=grad; ctx.fill();
-  ctx.lineWidth=2.2; ctx.strokeStyle="#222"; ctx.stroke();
-
-  ctx.save();
-  ctx.translate(cx,cy);
-  // Physikalische Konvention nach Vorgabe:
-  // P rechtsdrehend = gegen Uhrzeigersinn; N linksdrehend = mit Uhrzeigersinn.
-  const a = angle + (phaseOffset || 0);
-  ctx.rotate(type==="P" ? -a : a);
-  ctx.font=Math.floor(r*.86)+"px Arial";
-  ctx.textAlign="center"; ctx.textBaseline="middle";
-  ctx.fillStyle=type==="P"?"#fff":"#222";
-  ctx.fillText(type,0,r*.04);
-  ctx.restore();
-}
-
-function render(){
-  if(!currentAtom)return;
-  const z=currentZ,n=currentN;
-  const canvas=document.getElementById("atomCanvas"), ctx=canvas.getContext("2d");
-  const m=gridMetrics();
-  const e=ELEMENTS[z], mass=z+n;
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle="white"; ctx.fillRect(0,0,canvas.width,canvas.height);
-
-  ctx.font="42px Arial"; ctx.textAlign="center"; ctx.textBaseline="top";
-  ctx.fillStyle=(z===2||z===10||z===18)?"#d22":"#222";
-  ctx.fillText(e[0]+"-"+mass,canvas.width/2,18);
-
-  drawGrid(ctx,m);
-  const isNoble=(z===currentAtom.rect.nobleZ && n===BASE_TEMPLATES[z].N.length);
-  drawRectOutline(ctx,m,currentAtom.rect,isNoble);
-
-  const occupied=new Set(currentAtom.particles.map(key));
-  for(const v of currentAtom.valencies){
-    if(!occupied.has(keyXY(v[0],v[1]))){
-      drawVacancy(ctx,m.offX+v[0]*m.cell+m.r,m.offY+v[1]*m.cell+m.r,m.r,v[2]);
-    }
-  }
-  for(const p of currentAtom.particles){
-    drawCircle(ctx,m.offX+p.x*m.cell+m.r,m.offY+p.y*m.cell+m.r,m.r,p.type,spinAngle,0);
-  }
-}
-
-function animate(){
-  if(rotationOn)spinAngle += 0.040;
-  render();
-  requestAnimationFrame(animate);
-}
-
-function generateAtom(){
-  const z=parseInt(document.getElementById("protonCount").value,10);
-  const n=parseInt(document.getElementById("neutronCount").value,10);
-  if(!ELEMENTS[z]){alert("Diese Version unterstützt aktuell Z=1 bis Z=18.");return;}
-  try{
-    currentAtom=buildAtom(z,n);
-    currentZ=z; currentN=n;
-    updateInfo();
-    lastCanvasReady=true;
-    if(!animationStarted){animationStarted=true; animate();}
-    else render();
-  }catch(e){alert(e.message);}
-}
-
-function updateInfo(){
-  const z=currentZ,n=currentN,e=ELEMENTS[z],mass=z+n,atom=currentAtom;
-  const red=atom.valencies.filter(v=>v[2]==="N").length;
-  const blue=atom.valencies.filter(v=>v[2]==="P").length;
-  document.getElementById("atomInfo").innerHTML=
-    "<strong>Element:</strong> "+e[1]+" ("+e[0]+")<br>"+
-    "<strong>Ordnungszahl:</strong> "+z+"<br>"+
-    "<strong>Protonen:</strong> "+z+" &nbsp; <strong>Neutronen:</strong> "+n+"<br>"+
-    "<strong>Massenzahl:</strong> "+mass+"<br>"+
-    "<strong>Isotop:</strong> "+e[0]+"-"+mass+"<br>"+
-    "<strong>Aktives Atomrechteck:</strong> "+atom.rect.description+"<br>"+
-    "<strong>Wertigkeiten:</strong> "+blue+" gegen Wasserstoff (blau), "+red+" gegen Sauerstoff (rot)<br>"+
-    "<strong>Darstellung:</strong> 7×12-Arbeitsfeld; Edelgaskonfiguration rot gestrichelt.";
-}
-
-function toggleRotation(){
-  rotationOn=!rotationOn;
-  document.getElementById("rotationBtn").textContent="Rotation: "+(rotationOn?"EIN":"AUS");
-}
-
-function downloadPNG(){
-  if(!lastCanvasReady){alert("Bitte zuerst ein Atom erzeugen.");return;}
-  const link=document.createElement("a");
-  link.download="atomgenerator_v4c_7x12.png";
-  link.href=document.getElementById("atomCanvas").toDataURL("image/png");
-  link.click();
-}
-
-initElements();
-generateAtom();
+function initElements(){const sel=document.getElementById("elementSelect");sel.innerHTML="";for(let z=1;z<=36;z++){const e=ELEMENTS[z],opt=document.createElement("option");opt.value=z;opt.textContent=z+" – "+e[1]+" ("+e[0]+")";sel.appendChild(opt)}sel.value="8"}
+function syncElement(){const z=parseInt(document.getElementById("elementSelect").value,10);document.getElementById("protonCount").value=z;document.getElementById("neutronCount").value=ELEMENTS[z][2];generateAtom()}
+function syncFromProtons(){const z=parseInt(document.getElementById("protonCount").value,10);if(ELEMENTS[z]){document.getElementById("elementSelect").value=z;document.getElementById("neutronCount").value=ELEMENTS[z][2]}}
+function gridMetrics(){const canvas=document.getElementById("atomCanvas"),padX=60,padTop=90,padBottom=55;const cell=Math.min((canvas.width-padX*2)/GLOBAL_COLS,(canvas.height-padTop-padBottom)/GLOBAL_ROWS);return {cell,r:cell/2,offX:(canvas.width-GLOBAL_COLS*cell)/2,offY:padTop}}
+function drawGrid(ctx,m){ctx.save();ctx.setLineDash([6,6]);ctx.strokeStyle="#666";ctx.lineWidth=1.2;for(let x=0;x<=GLOBAL_COLS;x++){ctx.beginPath();ctx.moveTo(m.offX+x*m.cell,m.offY);ctx.lineTo(m.offX+x*m.cell,m.offY+GLOBAL_ROWS*m.cell);ctx.stroke()}for(let y=0;y<=GLOBAL_ROWS;y++){ctx.beginPath();ctx.moveTo(m.offX,m.offY+y*m.cell);ctx.lineTo(m.offX+GLOBAL_COLS*m.cell,m.offY+y*m.cell);ctx.stroke()}ctx.restore()}
+function drawRectOutline(ctx,m,rect,isNoble){ctx.save();ctx.setLineDash([16,10]);ctx.strokeStyle=isNoble?"#d22":"rgba(80,80,80,.35)";ctx.lineWidth=isNoble?5:2;ctx.strokeRect(m.offX+rect.x*m.cell,m.offY+rect.y*m.cell,rect.w*m.cell,rect.h*m.cell);ctx.restore()}
+function drawSevenRowGuide(ctx,m){ctx.save();ctx.strokeStyle="rgba(0,80,180,.35)";ctx.lineWidth=5;ctx.setLineDash([10,8]);const y=m.offY+3*m.cell+m.r;ctx.beginPath();ctx.moveTo(m.offX,y);ctx.lineTo(m.offX+GLOBAL_COLS*m.cell,y);ctx.stroke();ctx.font="16px Arial";ctx.fillStyle="rgba(0,80,180,.8)";ctx.textAlign="center";ctx.fillText("ab Eisen: 7er-Reihen / zwei entgegengesetzte Richtungen",m.offX+GLOBAL_COLS*m.cell/2,m.offY+GLOBAL_ROWS*m.cell+30);ctx.restore()}
+function drawVacancy(ctx,cx,cy,r,valenceType){const isP=valenceType==="P",main=isP?"rgba(0,155,255,.95)":"rgba(255,80,80,.95)",soft=isP?"rgba(0,155,255,.20)":"rgba(255,80,80,.20)";ctx.save();const grad=ctx.createRadialGradient(cx,cy,r*.05,cx,cy,r*.70);grad.addColorStop(0,main);grad.addColorStop(.45,soft);grad.addColorStop(1,"rgba(255,255,255,0)");ctx.beginPath();ctx.arc(cx,cy,r*.70,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();ctx.beginPath();ctx.arc(cx,cy,r*.96,0,Math.PI*2);ctx.setLineDash([8,6]);ctx.strokeStyle="#222";ctx.lineWidth=2.2;ctx.stroke();ctx.restore()}
+function drawCircle(ctx,cx,cy,r,type,angle){const grad=ctx.createRadialGradient(cx-r*.25,cy-r*.35,r*.08,cx,cy,r);if(type==="P"){grad.addColorStop(0,"#ddd");grad.addColorStop(.55,"#999");grad.addColorStop(1,"#666")}else{grad.addColorStop(0,"#fff");grad.addColorStop(.6,"#eee");grad.addColorStop(1,"#ccc")}ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();ctx.lineWidth=2.2;ctx.strokeStyle="#222";ctx.stroke();ctx.save();ctx.translate(cx,cy);ctx.rotate(type==="P"?-angle:angle);ctx.font=Math.floor(r*.86)+"px Arial";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillStyle=type==="P"?"#fff":"#222";ctx.fillText(type,0,r*.04);ctx.restore()}
+function render(){if(!currentAtom)return;const z=currentZ,n=currentN,canvas=document.getElementById("atomCanvas"),ctx=canvas.getContext("2d"),m=gridMetrics(),e=ELEMENTS[z],mass=z+n;ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle="white";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.font="42px Arial";ctx.textAlign="center";ctx.textBaseline="top";ctx.fillStyle=(z===2||z===10||z===18||z===36)?"#d22":"#222";ctx.fillText(e[0]+"-"+mass,canvas.width/2,18);drawGrid(ctx,m);const isNoble=(z===currentAtom.rect.nobleZ&&n===ELEMENTS[z][2]);drawRectOutline(ctx,m,currentAtom.rect,isNoble);if(currentAtom.rowMode)drawSevenRowGuide(ctx,m);const occupied=new Set(currentAtom.particles.map(key));for(const v of currentAtom.valencies){if(!occupied.has(keyXY(v[0],v[1])))drawVacancy(ctx,m.offX+v[0]*m.cell+m.r,m.offY+v[1]*m.cell+m.r,m.r,v[2])}for(const p of currentAtom.particles){drawCircle(ctx,m.offX+p.x*m.cell+m.r,m.offY+p.y*m.cell+m.r,m.r,p.type,spinAngle)} }
+function animate(){if(rotationOn)spinAngle+=.040;render();requestAnimationFrame(animate)}
+function generateAtom(){const z=parseInt(document.getElementById("protonCount").value,10),n=parseInt(document.getElementById("neutronCount").value,10);if(!ELEMENTS[z]){alert("Diese Version unterstützt Z=1 bis Z=36.");return}try{currentZ=z;currentN=n;currentAtom=buildAtom(z,n);lastCanvasReady=true;render();const e=ELEMENTS[z],mass=z+n;document.getElementById("atomInfo").innerHTML="<b>"+e[1]+" ("+e[0]+"-"+mass+")</b><br>Protonen: "+z+" | Neutronen: "+n+" | Nukleonen: "+mass+"<br>Bereich: "+currentAtom.rect.name+" – "+currentAtom.rect.description+"<br>Wertigkeiten: "+currentAtom.valencies.length+(z>=26?"<br><b>Hinweis:</b> Ab Eisen ist der 7er-Reihen-Aufbau markiert. Die genaue Reihenfolge der Entfernung/Ergänzung sollte nun anhand deiner Vorlagen geprüft werden.":"");if(!animationStarted){animationStarted=true;animate()}}catch(err){lastCanvasReady=false;alert(err.message);document.getElementById("atomInfo").innerHTML="<b>Fehler:</b> "+err.message}}
+function toggleRotation(){rotationOn=!rotationOn;document.getElementById("rotationBtn").textContent="Rotation: "+(rotationOn?"EIN":"AUS");render()}
+function downloadPNG(){if(!lastCanvasReady){alert("Bitte zuerst ein Atom erzeugen.");return}const canvas=document.getElementById("atomCanvas"),a=document.createElement("a");a.href=canvas.toDataURL("image/png");const e=ELEMENTS[currentZ];a.download="2D_Atom_"+e[0]+"_"+(currentZ+currentN)+"_V4h.png";a.click()}
+initElements();generateAtom();
 </script>
 </body>
 </html>
