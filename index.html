@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<title>2D-Atomgenerator V4d – 7×12</title>
+<title>2D-Atomgenerator V4j – 7×12</title>
 <style>
 body{margin:0;background:#f7f7f7}
 .atomgen{font-family:Arial,sans-serif;max-width:1180px;margin:20px auto;padding:18px;border:1px solid #bbb;border-radius:14px;background:#fff}
@@ -18,7 +18,7 @@ button{margin:10px 8px 10px 0;padding:8px 14px;cursor:pointer}
 </head>
 <body>
 <div class="atomgen">
-<h2>2D-Atomgenerator – V4d 7×12-Arbeitsfeld</h2>
+<h2>2D-Atomgenerator – V4j 7×12-Arbeitsfeld</h2>
 
 <div class="row"><label>Element:</label><select id="elementSelect" onchange="syncElement()"></select></div>
 <div class="row"><label>Protonen P:</label><input id="protonCount" type="number" min="1" max="18" value="8" onchange="syncFromProtons()"></div>
@@ -31,10 +31,10 @@ button{margin:10px 8px 10px 0;padding:8px 14px;cursor:pointer}
 <canvas id="atomCanvas" width="1180" height="760"></canvas>
 <div id="atomInfo"></div>
 <p class="note">
-V4d-Testversion: Alle Atome werden in einem festen 7×12-Arbeitsfeld angezeigt.
+V4j-Testversion: Alle Atome werden in einem festen 7×12-Arbeitsfeld angezeigt.
 Der Aufbau erfolgt weiterhin innerhalb des Edelgasrechtecks der jeweiligen Periode.
 Bei Edelgasen wird das vollständig besetzte Atomrechteck rot gestrichelt umrandet.
-Neu: Buchstaben etwas kleiner, gleich ausgerichtet und etwas schneller; zusätzliche Neutronen werden nur direkt an Protonen gesetzt, fehlende Neutronen nur von außen entfernt.
+Neu V4j: Wertigkeitsplätze werden automatisch nur dort angezeigt, wo ein freier Platz von 2 oder 3 Bausteinen flankiert wird. Be-8 besitzt eine korrigierte Sonderform.
 </p>
 </div>
 
@@ -286,6 +286,25 @@ function buildAtom(z,n){
   let pList=toGlobalList(t.P,rect);
   let baseN=toGlobalList(t.N,rect);
 
+  // Sonderform Be-8 nach Vorgabe:
+  // ○ N P ○
+  // N P N P
+  // ○ N P ○
+  // Die vier ○-Positionen werden anschließend automatisch als Wertigkeiten erkannt,
+  // weil sie jeweils von 2 Bausteinen flankiert werden.
+  if(z===4 && n===4){
+    pList=[
+      g(rect,2,1),
+      g(rect,1,2), g(rect,3,2),
+      g(rect,2,3)
+    ];
+    baseN=[
+      g(rect,1,1),
+      g(rect,0,2), g(rect,2,2),
+      g(rect,1,3)
+    ];
+  }
+
   let nList=chooseNeutronsByRules(pList,baseN,n,rect,fieldType);
 
   if(nList.length!==n)throw new Error("kein Isotop möglich!");
@@ -325,7 +344,6 @@ function calculateValencies(particles,baseN,rect,z,fieldType){
   const occ=new Set(particles.map(key));
   const vals=[];
   const seen=new Set();
-  const t=BASE_TEMPLATES[z];
 
   function addGlobal(x,y){
     const k=keyXY(x,y);
@@ -335,25 +353,15 @@ function calculateValencies(particles,baseN,rect,z,fieldType){
     seen.add(k);
   }
 
-  // 1) Fehlende Neutronen des ursprünglichen Bauplans: rote Wertigkeit.
-  //    Durch die neue Entfernungsregel sollten diese Positionen außen liegen.
-  for(const n0 of baseN){
-    if(!occ.has(keyXY(n0[0],n0[1])))addGlobal(n0[0],n0[1]);
-  }
-
-  // 2) Vorgesehene Wertigkeitsplätze aus dem jeweiligen Bauplan.
-  //    Keine automatische Mittel-/Innenwertigkeit mehr.
-  for(const v of (t.V||[])){
-    const gv=g(rect,v[0],v[1]);
-    addGlobal(gv[0],gv[1]);
-  }
-
-  // 3) H-1: mindestens ein freier N-Platz gegen Sauerstoff.
-  if(z===1 && vals.length===0){
-    for(let y=rect.y;y<rect.y+rect.h;y++){
-      for(let x=rect.x;x<rect.x+rect.w;x++){
-        if(fieldType(x,y)==="N" && neighborCount([x,y],occ)>=1)addGlobal(x,y);
-      }
+  // V4j: Wertigkeiten nicht mehr fest aus dem Bauplan übernehmen.
+  // Ein freier Platz wird nur dann als Wertigkeit gezeichnet,
+  // wenn er von genau 2 oder 3 vorhandenen Bausteinen flankiert wird.
+  // 1 Nachbar = keine Wertigkeit; 4 Nachbarn = Innenloch, ebenfalls keine Wertigkeit.
+  for(let y=rect.y;y<rect.y+rect.h;y++){
+    for(let x=rect.x;x<rect.x+rect.w;x++){
+      if(occ.has(keyXY(x,y)))continue;
+      const c=neighborCount([x,y],occ);
+      if(c===2 || c===3)addGlobal(x,y);
     }
   }
 
@@ -527,7 +535,7 @@ function toggleRotation(){
 function downloadPNG(){
   if(!lastCanvasReady){alert("Bitte zuerst ein Atom erzeugen.");return;}
   const link=document.createElement("a");
-  link.download="atomgenerator_v4c_7x12.png";
+  link.download="atomgenerator_v4j_7x12.png";
   link.href=document.getElementById("atomCanvas").toDataURL("image/png");
   link.click();
 }
