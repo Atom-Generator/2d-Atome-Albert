@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<title>2D-Atomgenerator V4k – 7×12</title>
+<title>2D-Atomgenerator Helmut M. Albert V4l – 7×12</title>
 <style>
 body{margin:0;background:#f7f7f7}
 .atomgen{font-family:Arial,sans-serif;max-width:1180px;margin:20px auto;padding:18px;border:1px solid #bbb;border-radius:14px;background:#fff}
@@ -18,7 +18,7 @@ button{margin:10px 8px 10px 0;padding:8px 14px;cursor:pointer}
 </head>
 <body>
 <div class="atomgen">
-<h2>2D-Atomgenerator – V4k 7×12-Arbeitsfeld</h2>
+<h2>2D-Atomgenerator Helmut M. Albert – V4l 7×12-Arbeitsfeld</h2>
 
 <div class="row"><label>Element:</label><select id="elementSelect" onchange="syncElement()"></select></div>
 <div class="row"><label>Protonen P:</label><input id="protonCount" type="number" min="1" max="18" value="8" onchange="syncFromProtons()"></div>
@@ -31,14 +31,20 @@ button{margin:10px 8px 10px 0;padding:8px 14px;cursor:pointer}
 <canvas id="atomCanvas" width="1180" height="760"></canvas>
 <div id="atomInfo"></div>
 <p class="note">
-V4k-Testversion: Alle Atome werden in einem festen 7×12-Arbeitsfeld angezeigt.
+V4l-Testversion: Alle Atome werden in einem festen 7×12-Arbeitsfeld angezeigt.
 Der Aufbau erfolgt weiterhin innerhalb des Edelgasrechtecks der jeweiligen Periode.
 Bei Edelgasen wird das vollständig besetzte Atomrechteck rot gestrichelt umrandet.
-Neu V4k: Neutronen werden bei Isotopen nur noch vom aktuellen Außenrand entfernt. Dadurch entstehen keine Innenlöcher; die Wertigkeitsplätze bleiben nach der 2/3-Flanken-Regel berechnet. Be-8 besitzt eine korrigierte Sonderform.
+Neu V4l: Neutronen werden bei Isotopen nur noch vom aktuellen Außenrand entfernt. Dadurch entstehen keine Innenlöcher; die Wertigkeitsplätze bleiben nach der 2/3-Flanken-Regel berechnet. Be-8 besitzt eine korrigierte Sonderform.
+© 2026 Helmut M. Albert – www.proton-neutron.com
 </p>
 </div>
 
 <script>
+/*
+  2D-Atomgenerator V4l
+  © 2026 Helmut M. Albert
+  www.proton-neutron.com
+*/
 let lastCanvasReady=false;
 let currentAtom=null;
 let currentZ=8;
@@ -313,6 +319,52 @@ function allNFieldsInRect(rect,fieldType){
   return out;
 }
 
+
+function boundsOfLists(lists){
+  const pts=[];
+  for(const list of lists){ for(const p of list)pts.push(p); }
+  if(!pts.length)return null;
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for(const p of pts){
+    if(p[0]<minX)minX=p[0]; if(p[0]>maxX)maxX=p[0];
+    if(p[1]<minY)minY=p[1]; if(p[1]>maxY)maxY=p[1];
+  }
+  return {minX,maxX,minY,maxY,w:maxX-minX+1,h:maxY-minY+1};
+}
+
+function centerBlockInRect(pList,nList,baseN,rect,fieldType,z){
+  // V4l: Na, Mg und Al als gesamten Block im 6×6-Argonrechteck zentrieren.
+  // Die P/N-Schachbrettphase wird mit verschoben, damit die Regel erhalten bleibt.
+  if(!(z===11 || z===12 || z===13))return {pList,nList,baseN,fieldType};
+
+  const b=boundsOfLists([pList,nList]);
+  if(!b)return {pList,nList,baseN,fieldType};
+
+  const targetMinX = rect.x + Math.round((rect.w - b.w)/2);
+  const targetMinY = rect.y + Math.round((rect.h - b.h)/2);
+  let dx = targetMinX - b.minX;
+  let dy = targetMinY - b.minY;
+
+  // Sicherheitsbegrenzung: nichts aus dem aktiven Edelgasrechteck schieben.
+  if(b.minX+dx < rect.x) dx = rect.x-b.minX;
+  if(b.maxX+dx >= rect.x+rect.w) dx = rect.x+rect.w-1-b.maxX;
+  if(b.minY+dy < rect.y) dy = rect.y-b.minY;
+  if(b.maxY+dy >= rect.y+rect.h) dy = rect.y+rect.h-1-b.maxY;
+
+  if(dx===0 && dy===0)return {pList,nList,baseN,fieldType};
+
+  const shift=list=>list.map(p=>[p[0]+dx,p[1]+dy]);
+  const oldFieldType=fieldType;
+  const shiftedFieldType=function(x,y){ return oldFieldType(x-dx,y-dy); };
+
+  return {
+    pList:shift(pList),
+    nList:shift(nList),
+    baseN:shift(baseN),
+    fieldType:shiftedFieldType
+  };
+}
+
 function buildAtom(z,n){
   const t=BASE_TEMPLATES[z];
   if(!t)throw new Error("Für dieses Element ist noch kein Bauplan hinterlegt.");
@@ -346,6 +398,13 @@ function buildAtom(z,n){
   }
 
   let nList=chooseNeutronsByRules(pList,baseN,n,rect,fieldType);
+
+  // V4l: Na-23, Mg-24 und Al-27 werden als komplette Atomblöcke mittig gesetzt.
+  const centered=centerBlockInRect(pList,nList,baseN,rect,fieldType,z);
+  pList=centered.pList;
+  nList=centered.nList;
+  baseN=centered.baseN;
+  fieldType=centered.fieldType;
 
   if(nList.length!==n)throw new Error("kein Isotop möglich!");
 
@@ -504,6 +563,18 @@ function drawCircle(ctx,cx,cy,r,type,angle,phaseOffset){
   ctx.restore();
 }
 
+
+function drawCopyright(ctx,canvas){
+  ctx.save();
+  ctx.font="16px Arial";
+  ctx.fillStyle="#555";
+  ctx.textAlign="right";
+  ctx.textBaseline="bottom";
+  ctx.fillText("© 2026 Helmut M. Albert", canvas.width-24, canvas.height-34);
+  ctx.fillText("www.proton-neutron.com", canvas.width-24, canvas.height-14);
+  ctx.restore();
+}
+
 function render(){
   if(!currentAtom)return;
   const z=currentZ,n=currentN;
@@ -530,6 +601,7 @@ function render(){
   for(const p of currentAtom.particles){
     drawCircle(ctx,m.offX+p.x*m.cell+m.r,m.offY+p.y*m.cell+m.r,m.r,p.type,spinAngle,0);
   }
+  drawCopyright(ctx,canvas);
 }
 
 function animate(){
@@ -575,10 +647,13 @@ function toggleRotation(){
 function downloadPNG(){
   if(!lastCanvasReady){alert("Bitte zuerst ein Atom erzeugen.");return;}
   const link=document.createElement("a");
-  link.download="atomgenerator_v4k_be8_fix_7x12.png";
+  const z=currentZ,n=currentN,e=ELEMENTS[z],mass=z+n;
+  link.download=e[0]+"-"+mass+"_Helmut_M_Albert.png";
+  render();
   link.href=document.getElementById("atomCanvas").toDataURL("image/png");
   link.click();
 }
+
 
 initElements();
 generateAtom();
