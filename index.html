@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<title>2D-Atomgenerator Helmut M. Albert V5 – 7×12</title>
+<title>2D-Atomgenerator Helmut M. Albert V5c – 7×12</title>
 <style>
 body{margin:0;background:#f7f7f7}
 .atomgen{font-family:Arial,sans-serif;max-width:1180px;margin:20px auto;padding:18px;border:1px solid #bbb;border-radius:14px;background:#fff}
@@ -23,7 +23,7 @@ button{margin:10px 8px 10px 0;padding:8px 14px;cursor:pointer}
 </head>
 <body>
 <div class="atomgen">
-<h2>2D-Atomgenerator Helmut M. Albert – V5 7×12-Arbeitsfeld</h2>
+<h2>2D-Atomgenerator Helmut M. Albert – V5c 7×12-Arbeitsfeld</h2>
 
 <div class="row"><label>Element:</label><select id="elementSelect" onchange="syncElement()"></select></div>
 <div class="row"><label>Protonen P (2D-Modell):</label><span class="number-control"><button class="step-btn" type="button" onclick="changeCount('protonCount',-1)" aria-label="Ein Proton entfernen">−</button><input id="protonCount" type="number" min="1" max="42" value="8" onchange="syncFromProtons()"><button class="step-btn" type="button" onclick="changeCount('protonCount',1)" aria-label="Ein Proton hinzufügen">+</button></span></div>
@@ -36,18 +36,12 @@ button{margin:10px 8px 10px 0;padding:8px 14px;cursor:pointer}
 
 <canvas id="atomCanvas" width="1180" height="760"></canvas>
 <div id="atomInfo"></div>
-<p class="note">
-V5-Testversion: Alle Atome werden in einem festen 7×12-Arbeitsfeld angezeigt.
-Der Aufbau erfolgt weiterhin innerhalb des Edelgasrechtecks der jeweiligen Periode.
-Bei Edelgasen wird das vollständig besetzte Atomrechteck rot gestrichelt umrandet.
-Neu V5: Grundzustände der 4. Periode bis Krypton, Anzeige offizieller und geänderter Modell-Ordnungszahlen, große Plus-/Minus-Schalter sowie Wertigkeiten EIN/AUS.
-Ab Kupfer werden offizielle und geänderte Modell-Ordnungszahl getrennt angezeigt. 34-Nickel ist nicht enthalten.<br>© 2026 Helmut M. Albert – www.proton-neutron.com
-</p>
+<p class="note">© 2026 Helmut M. Albert – www.proton-neutron.com</p>
 </div>
 
 <script>
 /*
-  2D-Atomgenerator V5
+  2D-Atomgenerator V5c
   © 2026 Helmut M. Albert
   www.proton-neutron.com
 */
@@ -265,34 +259,171 @@ function createsInnerHole(pList,nList,rect){
   return false;
 }
 
+
+/*
+  V5c – Wachstumsenden-Regel für schwere Atome:
+  - Die äußeren linken und rechten 7er-Bausteinreihen sind die beiden
+    gegenüberliegenden Wachstumsenden.
+  - Bei der Neutronen-Reduktion werden zuerst diese beiden Seitenreihen
+    abgebaut, abwechselnd links/rechts und innerhalb jeder Reihe von den
+    äußeren Ecken zur Mitte.
+  - Erst wenn an den beiden Wachstumsenden keine regelgerechte Entnahme
+    mehr möglich ist, folgen obere und untere Randplätze.
+  - Bei der Erhöhung gilt die spiegelbildliche Reihenfolge.
+*/
+function occupiedBounds(pList,nList){
+  const all=pList.concat(nList);
+  if(!all.length)return null;
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for(const p of all){
+    if(p[0]<minX)minX=p[0];
+    if(p[0]>maxX)maxX=p[0];
+    if(p[1]<minY)minY=p[1];
+    if(p[1]>maxY)maxY=p[1];
+  }
+  return {minX,maxX,minY,maxY};
+}
+
+function sideCornerPriority(pos,bounds){
+  const dTop=Math.abs(pos[1]-bounds.minY);
+  const dBottom=Math.abs(bounds.maxY-pos[1]);
+  return Math.max(dTop,dBottom); // obere/untere Ecke vor der Mitte
+}
+
+function topBottomCornerPriority(pos,bounds){
+  const dLeft=Math.abs(pos[0]-bounds.minX);
+  const dRight=Math.abs(bounds.maxX-pos[0]);
+  return Math.max(dLeft,dRight);
+}
+
+function chooseGrowthEndRemoval(valid,pList,current,preferredSide){
+  if(!valid.length)return -1;
+  const b=occupiedBounds(pList,current);
+  if(!b)return -1;
+
+  const left=valid.filter(c=>c.pos[0]===b.minX);
+  const right=valid.filter(c=>c.pos[0]===b.maxX);
+  const sidePool=(preferredSide==="L" ? left : right);
+  const opposite=(preferredSide==="L" ? right : left);
+  const pool=sidePool.length ? sidePool : opposite;
+
+  if(pool.length){
+    pool.sort((a,b2)=>{
+      const ca=sideCornerPriority(a.pos,b);
+      const cb=sideCornerPriority(b2.pos,b);
+      if(cb!==ca)return cb-ca;
+      return b2.score-a.score;
+    });
+    return pool[0].index;
+  }
+
+  // Erst danach obere und untere Außenränder.
+  const top=valid.filter(c=>c.pos[1]===b.minY);
+  const bottom=valid.filter(c=>c.pos[1]===b.maxY);
+  const edgePool=top.concat(bottom);
+
+  if(edgePool.length){
+    edgePool.sort((a,b2)=>{
+      const ca=topBottomCornerPriority(a.pos,b);
+      const cb=topBottomCornerPriority(b2.pos,b);
+      if(cb!==ca)return cb-ca;
+      return b2.score-a.score;
+    });
+    return edgePool[0].index;
+  }
+
+  valid.sort((a,b2)=>b2.score-a.score);
+  return valid[0].index;
+}
+
+function chooseGrowthEndAddition(candidates,pList,current,preferredSide,rect){
+  if(!candidates.length)return -1;
+  const b=occupiedBounds(pList,current);
+  if(!b)return -1;
+
+  // Zuerst freie N-Plätze an bzw. unmittelbar außerhalb der beiden Wachstumsenden.
+  const leftX=Math.max(rect.x,b.minX-1);
+  const rightX=Math.min(rect.x+rect.w-1,b.maxX+1);
+
+  const left=candidates.filter(c=>c.pos[0]===leftX || c.pos[0]===b.minX);
+  const right=candidates.filter(c=>c.pos[0]===rightX || c.pos[0]===b.maxX);
+  const sidePool=(preferredSide==="L" ? left : right);
+  const opposite=(preferredSide==="L" ? right : left);
+  const pool=sidePool.length ? sidePool : opposite;
+
+  if(pool.length){
+    pool.sort((a,b2)=>{
+      const ca=sideCornerPriority(a.pos,b);
+      const cb=sideCornerPriority(b2.pos,b);
+      if(cb!==ca)return cb-ca;
+      return b2.score-a.score;
+    });
+    return pool[0].index;
+  }
+
+  // Erst danach freie Plätze an oberen und unteren Rändern.
+  const topY=Math.max(rect.y,b.minY-1);
+  const bottomY=Math.min(rect.y+rect.h-1,b.maxY+1);
+  const edgePool=candidates.filter(c=>
+    c.pos[1]===topY || c.pos[1]===bottomY ||
+    c.pos[1]===b.minY || c.pos[1]===b.maxY
+  );
+
+  if(edgePool.length){
+    edgePool.sort((a,b2)=>{
+      const ca=topBottomCornerPriority(a.pos,b);
+      const cb=topBottomCornerPriority(b2.pos,b);
+      if(cb!==ca)return cb-ca;
+      return b2.score-a.score;
+    });
+    return edgePool[0].index;
+  }
+
+  candidates.sort((a,b2)=>b2.score-a.score);
+  return candidates[0].index;
+}
+
 function chooseNeutronsByRules(pList,baseN,wantedN,rect,fieldType){
   if(wantedN===baseN.length)return baseN.slice();
 
+  const useGrowthEndRule = rect.id==="KR";
+
   if(wantedN<baseN.length){
     let current=baseN.slice();
+    let sideStep=0;
+
     while(current.length>wantedN){
-      let bestIndex=-1, bestScore=-999999;
       const occupied=occupiedSetFromLists(pList,current);
+      const valid=[];
 
       for(let i=0;i<current.length;i++){
         const candidate=current[i];
 
-        // V4k-Regel: keine Entnahme aus dem Inneren.
-        // Nur der jeweils aktuelle Außenrand darf abgebaut werden.
         if(!isBoundaryParticle(candidate,occupied,rect))continue;
 
         const rest=current.slice(0,i).concat(current.slice(i+1));
         if(!areParticlesConnected(pList,rest))continue;
         if(createsInnerHole(pList,rest,rect))continue;
 
-        // Außen zuerst, bei Gleichstand möglichst symmetrisch und mit wenig Nachbarn.
-        const sc=outerScore(candidate,rect) - neighborCount(candidate,occupied)*2;
-        if(sc>bestScore){bestScore=sc; bestIndex=i;}
+        const score=outerScore(candidate,rect)-neighborCount(candidate,occupied)*2;
+        valid.push({index:i,pos:candidate,score});
+      }
+
+      let bestIndex=-1;
+
+      if(useGrowthEndRule){
+        const preferredSide=(sideStep%2===0) ? "L" : "R";
+        bestIndex=chooseGrowthEndRemoval(valid,pList,current,preferredSide);
+      }else if(valid.length){
+        valid.sort((a,b)=>b.score-a.score);
+        bestIndex=valid[0].index;
       }
 
       if(bestIndex<0){
         throw new Error("kein Isotop möglich! Neutronen können nicht weiter vom Außenrand entfernt werden, ohne ein Innenloch oder eine Trennung zu erzeugen.");
       }
+
+      if(useGrowthEndRule)sideStep++;
       current.splice(bestIndex,1);
     }
     return current;
@@ -303,19 +434,42 @@ function chooseNeutronsByRules(pList,baseN,wantedN,rect,fieldType){
   const used=new Set(baseN.concat(pList).map(p=>keyXY(p[0],p[1])));
   let candidates=allNFieldsInRect(rect,fieldType)
     .filter(p=>!used.has(keyXY(p[0],p[1])))
-    .filter(p=>protonNeighborCount(p,pList)>0); // direkt an Proton
+    .filter(p=>protonNeighborCount(p,pList)>0);
 
-  candidates.sort((a,b)=>{
-    const pa=protonNeighborCount(a,pList), pb=protonNeighborCount(b,pList);
-    if(pb!==pa)return pb-pa;
-    return outerScore(b,rect)-outerScore(a,rect);
-  });
+  if(useGrowthEndRule){
+    let sideStep=0;
 
-  for(const c of candidates){
-    if(current.length>=wantedN)break;
-    current.push(c);
+    while(current.length<wantedN && candidates.length){
+      const decorated=candidates.map((p,index)=>({
+        index,
+        pos:p,
+        score:protonNeighborCount(p,pList)*100 + outerScore(p,rect)
+      }));
+
+      const preferredSide=(sideStep%2===0) ? "L" : "R";
+      const pick=chooseGrowthEndAddition(decorated,pList,current,preferredSide,rect);
+      if(pick<0)break;
+
+      current.push(candidates[pick]);
+      candidates.splice(pick,1);
+      sideStep++;
+    }
+  }else{
+    candidates.sort((a,b)=>{
+      const pa=protonNeighborCount(a,pList), pb=protonNeighborCount(b,pList);
+      if(pb!==pa)return pb-pa;
+      return outerScore(b,rect)-outerScore(a,rect);
+    });
+
+    for(const c of candidates){
+      if(current.length>=wantedN)break;
+      current.push(c);
+    }
   }
-  if(current.length!==wantedN)throw new Error("kein Isotop möglich! Zusätzliche Neutronen wären nicht direkt an ein Proton angedockt.");
+
+  if(current.length!==wantedN){
+    throw new Error("kein Isotop möglich! Zusätzliche Neutronen wären nicht direkt an ein Proton angedockt.");
+  }
   return current;
 }
 
